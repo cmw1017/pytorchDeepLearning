@@ -10,6 +10,8 @@ import torchvision.models.vgg as vgg
 
 # CUDA 사용시 적용
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(device)
+
 torch.manual_seed(777)
 if device == 'cuda':
     torch.cuda.manual_seed_all(777)
@@ -117,7 +119,7 @@ class VGG(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-# VGG 설정, cfg의 타입에 맞게 설정하여야함
+# VGG 설정, cfg의 타입에 맞게 설정하여야함(VGG-11)
 vggN = VGG(vgg.make_layers(cfg['A']), 10, True).to(device)
 
 # load_model = Path("./model/VGG11_cifar_CNN")
@@ -155,7 +157,7 @@ def acc_check(net, test_set, epoch, save=1):
 
 # Train
 print(len(trainloader))
-epochs = 8
+epochs = 15
 
 for epoch in range(epochs):  # loop over the dataset multiple times
     running_loss = 0.0
@@ -182,6 +184,9 @@ for epoch in range(epochs):  # loop over the dataset multiple times
             running_loss = 0.0
     lr_sche.step()
     # Check Accuracy
-    acc = acc_check(vggN, testloader, epoch, save=1)
+    if epoch % 5 == 4:
+        acc = acc_check(vggN, testloader, epoch, save=1)
+    else:
+        acc = acc_check(vggN, testloader, epoch, save=0)
 
 print('Finished Training')

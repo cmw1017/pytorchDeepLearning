@@ -8,10 +8,12 @@ import torchvision.transforms as transforms
 import torchvision.models.resnet as resnet
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(device)
 
 torch.manual_seed(777)
 if device == 'cuda':
     torch.cuda.manual_seed_all(777)
+
 
 # 데이터 normalize
 transform = transforms.Compose([
@@ -59,10 +61,88 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=256,
 classes = ('plane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
+
 # ResNet에 필요한 연산 따로 정의하지 않아 라이브러리에서 불러옴
-conv1x1 = resnet.conv1x1
-Bottleneck = resnet.Bottleneck
-BasicBlock = resnet.BasicBlock
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
+
+
+def conv1x1(in_planes, out_planes, stride=1):
+    """1x1 convolution"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+
+        identity = x
+
+        out = self.conv1(x) # 3x3 stride = 2
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out) # 3x3 stride = 1
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
+
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = conv1x1(inplanes, planes) #conv1x1(64,64)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = conv3x3(planes, planes, stride)#conv3x3(64,64)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = conv1x1(planes, planes * self.expansion) #conv1x1(64,256)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x) # 1x1 stride = 1
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out) # 3x3 stride = stride
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out) # 1x1 stride = 1
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
+
+        return out
 
 
 class ResNet(nn.Module):
@@ -140,12 +220,16 @@ class ResNet(nn.Module):
         return x
 
 
-resnet50 = ResNet(resnet.Bottleneck, [3, 4, 6, 3], 10, True).to(device)
+# ResNet(18) => 2*(2+2+2+2) +1(conv1) +1(fc)  = 16 +2 =resnet 18
+# resnetN = ResNet(resnet.Bottleneck, [2, 2, 2, 2], 10, True).to(device)
+# ResNet(50) => 3*(3+4+6+3) +1(conv1) +1(fc) = 48 +2 = 50
+resnetN = ResNet(resnet.Bottleneck, [3, 4, 6, 3], 10, True).to(device)
+# ResNet(152) => 3*(3+8+36+3) +1(conv1) +1(fc) = 150+2 = resnet152
+# resnetN = ResNet(resnet.Bottleneck, [3, 8, 36, 3], 10, True).to(device)
 
-# print(resnet50)
 
 criterion = nn.CrossEntropyLoss().to(device)
-optimizer = torch.optim.SGD(resnet50.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+optimizer = torch.optim.SGD(resnetN.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
 lr_sche = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
 
@@ -172,7 +256,7 @@ def acc_check(net, test_set, epoch, save=1):
 
 
 print(len(trainloader))
-epochs = 150
+epochs = 60
 
 for epoch in range(epochs):  # loop over the dataset multiple times
 
@@ -187,7 +271,7 @@ for epoch in range(epochs):  # loop over the dataset multiple times
         optimizer.zero_grad()
 
         # forward + backward + optimize
-        outputs = resnet50(inputs)
+        outputs = resnetN(inputs)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -200,6 +284,9 @@ for epoch in range(epochs):  # loop over the dataset multiple times
             running_loss = 0.0
     lr_sche.step()
     # Check Accuracy
-    acc = acc_check(resnet50, testloader, epoch, save=1)
+    if epoch % 20 == 19:
+        acc = acc_check(resnetN, testloader, epoch, save=1)
+    else:
+        acc = acc_check(resnetN, testloader, epoch, save=0)
 
 print('Finished Training')
